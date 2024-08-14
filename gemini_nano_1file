@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Nano Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+        .chat-container {
+            width: 100%;
+            max-width: 600px;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .chat-messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 80%;
+        }
+        .user-message {
+            background-color: #e1f5fe;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .ai-message {
+            background-color: #f0f4c3;
+        }
+        .input-area {
+            display: flex;
+            padding: 10px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .chat-input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 20px;
+            margin-right: 10px;
+        }
+        .send-button {
+            padding: 10px 20px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+        .send-button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="input-area">
+            <input type="text" id="chat-input" class="chat-input" placeholder="Type your message...">
+            <button id="send-button" class="send-button">Send</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        class GeminiNanoChatbot {
+            constructor() {
+                this.session = null;
+                this.debugMode = false;
+                this.performanceLog = [];
+            }
+
+            async initialize() {
+                const startTime = performance.now();
+                try {
+                    const canCreate = await window.ai.canCreateTextSession();
+                    if (canCreate !== "no") {
+                        const modelInfo = await window.ai.textModelInfo();
+                        this.session = await window.ai.createTextSession({
+                            temperature: modelInfo.temperature,
+                            topK: modelInfo.topK
+                        });
+                        console.log("Chatbot initialized successfully.");
+                    } else {
+                        console.error("Unable to create text session for Gemini Nano.");
+                    }
+                } catch (error) {
+                    this.handleError(error);
+                }
+                this.logPerformance("Initialization", startTime);
+            }
+
+            async sendMessage(message) {
+                if (!this.session) {
+                    console.error("Session not initialized. Call initialize() first.");
+                    return;
+                }
+
+                const startTime = performance.now();
+                try {
+                    const stream = this.session.promptStreaming(message);
+                    let result = '';
+                    for await (const chunk of stream) {
+                        result = chunk;
+                        yield result;
+                    }
+                    return result;
+                } catch (error) {
+                    this.handleError(error);
+                } finally {
+                    this.logPerformance("Message processing", startTime);
+                }
+            }
+
+            handleError(error) {
+                if (error instanceof DOMException) {
+                    switch (error.name) {
+                        case 'InvalidStateError':
+                            console.error("The session has been destroyed. Create a new session.");
+                            break;
+                        case 'OperationError':
+                            console.error("Model execution service is not available. Try relaunching Chrome.");
+                            break;
+                        case 'NotSupportedError':
+                            console.error("Invalid request. Check your session options.");
+                            break;
+                        case 'UnknownError':
+                            console.error("An unknown error occurred. Retry or relaunch Chrome.");
+                            break;
+                        case 'NotReadableError':
+                            console.error("The response was disabled.");
+                            break;
+                        case 'AbortError':
+                            console.error("The request was canceled.");
+                            break;
+                        default:
+                            console.error("An unexpected error occurred:", error);
+                    }
+                } else {
+                    console.error("An unexpected error occurred:", error);
+                }
+            }
+
+            logPerformance(action, startTime) {
+                const endTime = performance.now();
+                const duration = endTime - startTime;
+                this.performanceLog.push({ action, duration });
+                if (this.debugMode) {
+                    console.log(`${action} took ${duration.toFixed(2)}ms`);
+                }
+            }
+
+            destroy() {
+                if (this.session) {
+                    this.session.destroy();
+                    this.session = null;
+                    console.log("Chatbot session destroyed.");
+                }
+            }
+        }
+
+        const chatbot = new GeminiNanoChatbot();
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const sendButton = document.getElementById('send-button');
+
+        sendButton.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            if (message === '') return;
+            
+            addMessageToChat('user', message);
+            chatInput.value = '';
+
+            if (!chatbot.session) {
+                await chatbot.initialize();
+            }
+
+            try {
+                await handleAIResponse(message);
+            } catch (error) {
+                console.error("Error:", error);
+                addMessageToChat('ai', 'An error occurred while processing your message.');
+            }
+        }
+
+        function addMessageToChat(sender, message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', sender === 'user' ? 'user-message' : 'ai-message');
+            messageDiv.innerHTML = marked.parse(message);
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        async function handleAIResponse(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', 'ai-message');
+            chatMessages.appendChild(messageDiv);
+
+            try {
+                for await (const chunk of chatbot.sendMessage(message)) {
+                    messageDiv.innerHTML = marked.parse(chunk);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+            } catch (error) {
+                console.error("AI Response Error:", error);
+                messageDiv.innerHTML = marked.parse('An error occurred while generating the AI response.');
+            }
+        }
+
+        // Initialize the chatbot when the page loads
+        window.addEventListener('load', async () => {
+            await chatbot.initialize();
+        });
+
+        // Clean up the chatbot session when the page is unloaded
+        window.addEventListener('beforeunload', () => {
+            chatbot.destroy();
+        });
+    </script>
+</body>
+</html>
