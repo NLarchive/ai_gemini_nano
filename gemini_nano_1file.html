@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gemini Nano Chatbot</title>
     <style>
+        /* Existing styles are kept as-is */
         body {
             font-family: Arial, sans-serif;
             margin: 0;
@@ -56,25 +57,16 @@
             border-radius: 20px;
             margin-right: 10px;
         }
-        .send-button, .debug-button {
+        .send-button {
             padding: 10px 20px;
             color: white;
             border: none;
             border-radius: 20px;
             cursor: pointer;
-        }
-        .send-button {
             background-color: #4caf50;
         }
         .send-button:hover {
             background-color: #45a049;
-        }
-        .debug-button {
-            background-color: #2196F3;
-            margin-right: 10px;
-        }
-        .debug-button:hover {
-            background-color: #0b79d0;
         }
         pre {
             background-color: #f4f4f4;
@@ -88,7 +80,6 @@
     <div class="chat-container">
         <div class="chat-messages" id="chat-messages"></div>
         <div class="input-area">
-            <button id="debug-button" class="debug-button">Toggle Debug Mode</button>
             <input type="text" id="chat-input" class="chat-input" placeholder="Type your message...">
             <button id="send-button" class="send-button">Send</button>
         </div>
@@ -99,9 +90,9 @@
         class GeminiNanoChatbot {
             constructor() {
                 this.session = null;
-                this.debugMode = false;
+                this.debugMode = true; // Automatically enable debug mode
                 this.performanceLog = [];
-                this.temperature = 1.0; // Default value
+                this.temperature = 0.7; // Default value
                 this.topK = 50; // Default value
             }
 
@@ -180,11 +171,6 @@
                 }
             }
 
-            toggleDebugMode() {
-                this.debugMode = !this.debugMode;
-                console.log(`Debug mode ${this.debugMode ? 'enabled' : 'disabled'}`);
-            }
-
             setTemperature(value) {
                 this.temperature = value;
             }
@@ -206,17 +192,12 @@
         const chatMessages = document.getElementById('chat-messages');
         const chatInput = document.getElementById('chat-input');
         const sendButton = document.getElementById('send-button');
-        const debugButton = document.getElementById('debug-button');
 
         sendButton.addEventListener('click', sendMessage);
         chatInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 sendMessage();
             }
-        });
-
-        debugButton.addEventListener('click', () => {
-            chatbot.toggleDebugMode();
         });
 
         async function sendMessage() {
