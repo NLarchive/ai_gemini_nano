@@ -13,5 +13,3 @@ Enable Gemini Nano and the Prompt API
 - Go to chrome://flags/#prompt-api-for-gemini-nano
 - Select "Enabled"
 - Relaunch Chrome
-
-Use the debug mode button with the chrome console to see additional information 
