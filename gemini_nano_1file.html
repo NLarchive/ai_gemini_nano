@@ -56,16 +56,25 @@
             border-radius: 20px;
             margin-right: 10px;
         }
-        .send-button {
+        .send-button, .debug-button {
             padding: 10px 20px;
-            background-color: #4caf50;
             color: white;
             border: none;
             border-radius: 20px;
             cursor: pointer;
         }
+        .send-button {
+            background-color: #4caf50;
+        }
         .send-button:hover {
             background-color: #45a049;
+        }
+        .debug-button {
+            background-color: #2196F3;
+            margin-right: 10px;
+        }
+        .debug-button:hover {
+            background-color: #0b79d0;
         }
         pre {
             background-color: #f4f4f4;
@@ -79,6 +88,7 @@
     <div class="chat-container">
         <div class="chat-messages" id="chat-messages"></div>
         <div class="input-area">
+            <button id="debug-button" class="debug-button">Toggle Debug Mode</button>
             <input type="text" id="chat-input" class="chat-input" placeholder="Type your message...">
             <button id="send-button" class="send-button">Send</button>
         </div>
@@ -91,6 +101,8 @@
                 this.session = null;
                 this.debugMode = false;
                 this.performanceLog = [];
+                this.temperature = 1.0; // Default value
+                this.topK = 50; // Default value
             }
 
             async initialize() {
@@ -100,8 +112,8 @@
                     if (canCreate !== "no") {
                         const modelInfo = await window.ai.textModelInfo();
                         this.session = await window.ai.createTextSession({
-                            temperature: modelInfo.temperature,
-                            topK: modelInfo.topK
+                            temperature: this.temperature,
+                            topK: this.topK
                         });
                         console.log("Chatbot initialized successfully.");
                     } else {
@@ -121,13 +133,8 @@
 
                 const startTime = performance.now();
                 try {
-                    const stream = this.session.promptStreaming(message);
-                    let result = '';
-                    for await (const chunk of stream) {
-                        result = chunk;
-                        yield result;
-                    }
-                    return result;
+                    const response = await this.session.prompt(message);
+                    return response;
                 } catch (error) {
                     this.handleError(error);
                 } finally {
@@ -173,6 +180,19 @@
                 }
             }
 
+            toggleDebugMode() {
+                this.debugMode = !this.debugMode;
+                console.log(`Debug mode ${this.debugMode ? 'enabled' : 'disabled'}`);
+            }
+
+            setTemperature(value) {
+                this.temperature = value;
+            }
+
+            setTopK(value) {
+                this.topK = value;
+            }
+
             destroy() {
                 if (this.session) {
                     this.session.destroy();
@@ -186,12 +206,17 @@
         const chatMessages = document.getElementById('chat-messages');
         const chatInput = document.getElementById('chat-input');
         const sendButton = document.getElementById('send-button');
+        const debugButton = document.getElementById('debug-button');
 
         sendButton.addEventListener('click', sendMessage);
         chatInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 sendMessage();
             }
+        });
+
+        debugButton.addEventListener('click', () => {
+            chatbot.toggleDebugMode();
         });
 
         async function sendMessage() {
@@ -206,7 +231,8 @@
             }
 
             try {
-                await handleAIResponse(message);
+                const response = await chatbot.sendMessage(message);
+                addMessageToChat('ai', response);
             } catch (error) {
                 console.error("Error:", error);
                 addMessageToChat('ai', 'An error occurred while processing your message.');
@@ -219,22 +245,6 @@
             messageDiv.innerHTML = marked.parse(message);
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        async function handleAIResponse(message) {
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message', 'ai-message');
-            chatMessages.appendChild(messageDiv);
-
-            try {
-                for await (const chunk of chatbot.sendMessage(message)) {
-                    messageDiv.innerHTML = marked.parse(chunk);
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                }
-            } catch (error) {
-                console.error("AI Response Error:", error);
-                messageDiv.innerHTML = marked.parse('An error occurred while generating the AI response.');
-            }
         }
 
         // Initialize the chatbot when the page loads
