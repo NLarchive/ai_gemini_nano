@@ -1,6 +1,4 @@
 # gemini_nano_html
-easy deploy gemini nano in single html file
-
 
 Prerequisites:
 - Download Chrome Dev channel (or Canary channel), version ≥ 128.0.6545.0
