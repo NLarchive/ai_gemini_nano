@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advanced Gemini Nano Chatbot with Embedding</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Chatbot Interface Structure -->
+    <div id="chat-container">
+        <div id="status-indicator" style="display: none;"></div>
+        <div id="messages"></div>
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="Type your message here..." />
+            <button id="send-button">Send</button>
+        </div>
+        <div id="options">
+            <!-- Tone Selection -->
+            <label>
+                Tone:
+                <select id="tone-selector">
+                    <option value="neutral">Neutral</option>
+                    <option value="formal">Formal</option>
+                    <option value="casual">Casual</option>
+                </select>
+            </label>
+            <!-- Format Selection -->
+            <label>
+                Format:
+                <select id="format-selector">
+                    <option value="plain">Plain Text</option>
+                    <option value="markdown">Markdown</option>
+                </select>
+            </label>
+            <!-- Temperature Input -->
+            <label>
+                Temperature:
+                <input type="number" id="temperature-input" min="0" max="1" step="0.1" value="0.7">
+            </label>
+            <!-- Top-K Input -->
+            <label>
+                Top-K:
+                <input type="number" id="topk-input" min="1" value="10">
+            </label>
+            <!-- Action Buttons -->
+            <button id="summarize-button">Summarize Conversation</button>
+            <button id="rewrite-button">Rewrite Last Response</button>
+            <button id="language-detect-button">Detect Language</button>
+            <button id="translate-button">Translate Text</button>
+            <button id="categorize-button">Categorize Content</button>
+        </div>
+        <!-- Session Statistics -->
+        <div id="session-stats">
+            <h4>Session Statistics</h4>
+            <p id="stats-content">Tokens Used: 0 / Tokens Left: 4096 / Temperature: Default / Top-K: Default</p>
+            <p id="cosine-similarity">Cosine Similarity: N/A</p>
+            <p id="source-info"></p>
+        </div>
+    </div>
+
+    <!-- Include TensorFlow.js and Universal Sentence Encoder Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.13.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder@1.3.3/dist/universal-sentence-encoder.min.js"></script>
+
+    <!-- Main JavaScript -->
+    <script>
+        // Global Variables
+        let aiSession = null;
+        let useModel = null;
+
+        // Sample Text Document for Embedding
+        const sampleDocument = "Artificial intelligence is transforming the world by enabling machines to learn from data, recognize patterns, and make decisions with minimal human intervention.";
+
+        // Retrieve and Cache DOM Elements
+        function getDOMElements() {
+            return {
+                messagesDiv: document.getElementById('messages'),
+                userInput: document.getElementById('user-input'),
+                sendButton: document.getElementById('send-button'),
+                toneSelector: document.getElementById('tone-selector'),
+                formatSelector: document.getElementById('format-selector'),
+                temperatureInput: document.getElementById('temperature-input'),
+                topkInput: document.getElementById('topk-input'),
+                summarizeButton: document.getElementById('summarize-button'),
+                rewriteButton: document.getElementById('rewrite-button'),
+                languageDetectButton: document.getElementById('language-detect-button'),
+                translateButton: document.getElementById('translate-button'),
+                categorizeButton: document.getElementById('categorize-button'),
+                statsContent: document.getElementById('stats-content'),
+                cosineSimilarity: document.getElementById('cosine-similarity'),
+                sourceInfo: document.getElementById('source-info'),
+                statusIndicator: document.getElementById('status-indicator')
+            };
+        }
+
+        // Append Messages to the Chat Interface
+        function appendMessage(messagesDiv, content, className) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + className;
+            messageDiv.textContent = content;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Update Session Statistics
+        function updateStats() {
+            if (aiSession) {
+                const elements = getDOMElements();
+                elements.statsContent.textContent = `Tokens Used: ${aiSession.tokensSoFar} / Tokens Left: ${aiSession.tokensLeft} / Temperature: ${aiSession.temperature} / Top-K: ${aiSession.topK}`;
+            }
+        }
+
+        // Show Status Indicator
+        function showStatus(message) {
+            const elements = getDOMElements();
+            elements.statusIndicator.textContent = message;
+            elements.statusIndicator.style.display = 'block';
+        }
+
+        // Hide Status Indicator
+        function hideStatus() {
+            const elements = getDOMElements();
+            elements.statusIndicator.textContent = '';
+            elements.statusIndicator.style.display = 'none';
+        }
+
+        // Load the Universal Sentence Encoder Model
+        async function loadEmbeddingModel() {
+            const elements = getDOMElements();
+            showStatus('Loading embedding model...');
+            try {
+                useModel = await use.load();
+                console.log("Embedding model loaded successfully");
+                showStatus('Embedding model loaded successfully.');
+                setTimeout(hideStatus, 2000);
+            } catch (error) {
+                console.error("Error loading embedding model:", error);
+                showStatus('Error loading embedding model.');
+            }
+        }
+
+        // Initialize AI Session
+        async function initializeSession(temperatureInput, topkInput) {
+            try {
+                const capabilities = await ai.assistant.capabilities();
+                if (capabilities.available !== 'no') {
+                    aiSession = await ai.assistant.create({
+                        temperature: parseFloat(temperatureInput.value),
+                        topK: parseInt(topkInput.value, 10)
+                    });
+                    updateStats();
+                } else {
+                    alert('AI assistant is not available on this device.');
+                }
+            } catch (error) {
+                console.error('Error initializing AI assistant:', error);
+                alert('AI assistant is not available or not properly configured.');
+            }
+        }
+
+        // Perform Retrieval-Augmented Generation (RAG)
+        async function performRAG(userQuery, elements) {
+            try {
+                // Embed the user query
+                const queryEmbedding = await useModel.embed([userQuery]);
+                const queryVector = queryEmbedding.arraySync()[0];
+
+                // Embed the sample document
+                const sampleEmbedding = await useModel.embed([sampleDocument]);
+                const sampleVector = sampleEmbedding.arraySync()[0];
+
+                // Calculate cosine similarity
+                const dotProduct = queryVector.reduce((sum, val, idx) => sum + val * sampleVector[idx], 0);
+                const queryNorm = Math.sqrt(queryVector.reduce((sum, val) => sum + val * val, 0));
+                const sampleNorm = Math.sqrt(sampleVector.reduce((sum, val) => sum + val * val, 0));
+                const cosineSimilarity = dotProduct / (queryNorm * sampleNorm);
+
+                console.log("Cosine Similarity:", cosineSimilarity);
+                elements.cosineSimilarity.textContent = `Cosine Similarity: ${cosineSimilarity.toFixed(4)}`;
+
+                if (cosineSimilarity > 0.7) {
+                    // Notify user about information retrieval
+                    appendMessage(elements.messagesDiv, 'Retrieving information from the embedding database...', 'assistant-message');
+                    // Notify source
+                    elements.sourceInfo.textContent = 'Source: Sample Document';
+                    // Retrieve relevant information and include in the prompt
+                    const ragPrompt = `Based on the following information, answer the user's query:\n\nInformation: ${sampleDocument}\n\nUser Query: ${userQuery}<ctrl23>`;
+                    const response = await aiSession.prompt(ragPrompt);
+                    return response;
+                } else {
+                    // Clear source info if not using sampleDocument
+                    elements.sourceInfo.textContent = '';
+                    // Proceed without additional information
+                    const response = await aiSession.prompt(userQuery + "<ctrl23>");
+                    return response;
+                }
+            } catch (error) {
+                console.error('Error during RAG:', error);
+                return 'Error during retrieval-augmented generation.';
+            }
+        }
+
+        // Handle Sending User Messages
+        async function handleSendMessage(elements) {
+            const userText = elements.userInput.value.trim();
+            if (!userText) return;
+            appendMessage(elements.messagesDiv, userText, 'user-message');
+            elements.userInput.value = '';
+
+            const tone = elements.toneSelector.value;
+            const format = elements.formatSelector.value;
+            const temperature = parseFloat(elements.temperatureInput.value);
+            const topK = parseInt(elements.topkInput.value, 10);
+            const fullPrompt = `Tone: ${tone}. Format: ${format}. Response: ${userText}<ctrl23>`;
+
+            try {
+                // Update session parameters if they have changed
+                if (aiSession.temperature !== temperature || aiSession.topK !== topK) {
+                    aiSession = await ai.assistant.create({
+                        temperature: temperature,
+                        topK: topK
+                    });
+                }
+
+                // Perform RAG with status update
+                showStatus('Processing your message...');
+                const response = await performRAG(fullPrompt, elements);
+                hideStatus();
+
+                appendMessage(elements.messagesDiv, response, 'assistant-message');
+                updateStats();
+            } catch (error) {
+                hideStatus();
+                console.error('Error during assistant prompt:', error);
+                appendMessage(elements.messagesDiv, 'Error: ' + error.message, 'assistant-message');
+            }
+        }
+
+        // Handle Summarizing the Conversation
+        async function handleSummarizeConversation(elements) {
+            try {
+                showStatus('Summarizing conversation...');
+                const messages = [...elements.messagesDiv.querySelectorAll('.message')]
+                    .map(msg => msg.textContent)
+                    .join('\n');
+                const summaryPrompt = `Summarize the following conversation:\n${messages}<ctrl23>`;
+                const summary = await aiSession.prompt(summaryPrompt);
+                hideStatus();
+                appendMessage(elements.messagesDiv, 'Summary: ' + summary, 'assistant-message');
+                updateStats();
+            } catch (error) {
+                hideStatus();
+                console.error('Error during summarization:', error);
+                appendMessage(elements.messagesDiv, 'Error: ' + error.message, 'assistant-message');
+            }
+        }
+
+        // Handle Rewriting the Last Response
+        async function handleRewriteLastResponse(elements) {
+            try {
+                showStatus('Rewriting the last response...');
+                const messages = elements.messagesDiv.querySelectorAll('.assistant-message');
+                if (messages.length === 0) {
+                    hideStatus();
+                    return;
+                }
+                const lastMessage = messages[messages.length - 1].textContent;
+                const rewritePrompt = `Rewrite the following response in a different way:\n${lastMessage}<ctrl23>`;
+                const rewritten = await aiSession.prompt(rewritePrompt);
+                hideStatus();
+                appendMessage(elements.messagesDiv, 'Rewritten: ' + rewritten, 'assistant-message');
+                updateStats();
+            } catch (error) {
+                hideStatus();
+                console.error('Error during rewriting:', error);
+                appendMessage(elements.messagesDiv, 'Error: ' + error.message, 'assistant-message');
+            }
+        }
+
+        // Handle Language Detection
+        async function handleLanguageDetection(elements) {
+            try {
+                showStatus('Detecting language...');
+                const userText = elements.userInput.value.trim();
+                if (!userText) {
+                    hideStatus();
+                    return;
+                }
+                const languagePrompt = `Detect the language of the following text:\n${userText}<ctrl23>`;
+                const language = await aiSession.prompt(languagePrompt);
+                hideStatus();
+                appendMessage(elements.messagesDiv, 'Detected Language: ' + language, 'assistant-message');
+                updateStats();
+            } catch (error) {
+                hideStatus();
+                console.error('Error during language detection:', error);
+                appendMessage(elements.messagesDiv, 'Error: ' + error.message, 'assistant-message');
+            }
+        }
+
+        // Handle Text Translation
+        async function handleTranslateText(elements) {
+            try {
+                showStatus('Translating text...');
+                const userText = elements.userInput.value.trim();
+                if (!userText) {
+                    hideStatus();
+                    return;
+                }
+                const translatePrompt = `Translate the following text to Spanish:\n${userText}<ctrl23>`;
+                const translated = await aiSession.prompt(translatePrompt);
+                hideStatus();
+                appendMessage(elements.messagesDiv, 'Translated Text: ' + translated, 'assistant-message');
+                updateStats();
+            } catch (error) {
+                hideStatus();
+                console.error('Error during translation:', error);
+                appendMessage(elements.messagesDiv, 'Error: ' + error.message, 'assistant-message');
+            }
+        }
+
+        // Handle Content Categorization
+        async function handleCategorizeContent(elements) {
+            try {
+                showStatus('Categorizing content...');
+                const messages = [...elements.messagesDiv.querySelectorAll('.message')]
+                    .map(msg => msg.textContent)
+                    .join('\n');
+                const categorizePrompt = `Categorize the following conversation content:\n${messages}<ctrl23>`;
+                const category = await aiSession.prompt(categorizePrompt);
+                hideStatus();
+                appendMessage(elements.messagesDiv, 'Category: ' + category, 'assistant-message');
+                updateStats();
+            } catch (error) {
+                hideStatus();
+                console.error('Error during categorization:', error);
+                appendMessage(elements.messagesDiv, 'Error: ' + error.message, 'assistant-message');
+            }
+        }
+
+        // Setup Event Listeners
+        function setupEventListeners(elements) {
+            elements.sendButton.addEventListener('click', () => handleSendMessage(elements));
+            elements.summarizeButton.addEventListener('click', () => handleSummarizeConversation(elements));
+            elements.rewriteButton.addEventListener('click', () => handleRewriteLastResponse(elements));
+            elements.languageDetectButton.addEventListener('click', () => handleLanguageDetection(elements));
+            elements.translateButton.addEventListener('click', () => handleTranslateText(elements));
+            elements.categorizeButton.addEventListener('click', () => handleCategorizeContent(elements));
+            elements.userInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    elements.sendButton.click();
+                    event.preventDefault();
+                }
+            });
+        }
+
+        // Initialize Chat System
+        async function initializeChat() {
+            const elements = getDOMElements();
+            await loadEmbeddingModel();
+            await initializeSession(elements.temperatureInput, elements.topkInput);
+            if (aiSession) {
+                setupEventListeners(elements);
+            }
+        }
+
+        // Automatically initialize the chat system on page load
+        window.addEventListener('DOMContentLoaded', initializeChat);
+    </script>
+</body>
+</html>
